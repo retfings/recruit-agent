@@ -31,11 +31,11 @@ const INTERVIEW_TEMPLATES = [
 ];
 
 const DIFFICULTY_LEVELS = [
-  { level: 1, label: "⭐ 初级", questions: 10, desc: "基础摸底" },
-  { level: 2, label: "⭐⭐ 中级", questions: 20, desc: "全面考察" },
-  { level: 3, label: "⭐⭐⭐ 高级", questions: 30, desc: "深度挖掘" },
-  { level: 4, label: "⭐⭐⭐⭐ 资深", questions: 40, desc: "架构综合" },
-  { level: 5, label: "⭐⭐⭐⭐⭐ 专家", questions: 50, desc: "全维度" },
+  { level: 1, label: "⭐ 初级工程师", questions: 10, desc: "侧重基础语法、框架使用、常见场景。考察：能否独立完成日常开发任务" },
+  { level: 2, label: "⭐⭐ 中级工程师", questions: 20, desc: "侧重技术深度、方案设计、问题排查。考察：能否独当一面，带小模块" },
+  { level: 3, label: "⭐⭐⭐ 高级工程师", questions: 30, desc: "侧重架构设计、性能优化、技术选型。考察：能否主导项目，指导初级" },
+  { level: 4, label: "⭐⭐⭐⭐ 资深工程师", questions: 40, desc: "侧重系统架构、跨团队协作、技术规划。考察：能否做技术决策，影响团队" },
+  { level: 5, label: "⭐⭐⭐⭐⭐ 专家/架构师", questions: 50, desc: "全维度深度面试：从Coding到架构到管理。考察：技术视野、领导力、行业影响力" },
 ];
 
 const SELF_ASSESS_DIMS = [
@@ -123,7 +123,7 @@ export default function InterviewPage() {
     try {
       const turns = history.filter((m) => m.role === "interviewer" || m.role === "candidate").map((m) => ({ role: m.role as "interviewer" | "candidate", content: m.content, intent: m.intent, feedback: m.feedback }));
       const res = await fetch("/api/interview/chat-stream", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined, difficulty }), signal: ac.signal,
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined, difficulty, difficultyLabel: DIFFICULTY_LEVELS.find(d=>d.level===difficulty)?.label }), signal: ac.signal,
       });
       if (!res.ok) throw new Error((await res.json()).error || "请求失败");
       const reader = res.body!.getReader();

@@ -24,14 +24,16 @@ const TEMPLATE_PROMPTS: Record<string, string> = {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { history, jobTitle, template, difficulty } = body as {
+    const { history, jobTitle, template, difficulty, difficultyLabel } = body as {
       history: { role: string; content: string; intent?: string; feedback?: any }[];
       jobTitle?: string;
       template?: string;
       difficulty?: number;
+      difficultyLabel?: string;
     };
 
     const targetRounds = difficulty ? difficulty * 10 : 20;
+    const levelDesc = difficultyLabel || "";
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -56,7 +58,7 @@ export async function POST(req: NextRequest) {
     const company = (template && COMPANY_MAP[template]) ? COMPANY_MAP[template] : "星辰科技（StarTech）";
     const roleName = template || "技术";
 
-    const systemPrompt = `你是一位资深的 HR 面试官，代表【${company}】，正在面试一位【${roleName}】岗位的候选人。${jobContext}
+    const systemPrompt = `你是一位资深的 HR 面试官，代表【${company}】，正在面试一位【${roleName}】岗位的【${levelDesc}】候选人。${jobContext}
 
 ${templatePrompt}
 
