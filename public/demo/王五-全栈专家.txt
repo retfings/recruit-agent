@@ -1,0 +1,33 @@
+王五 | 全栈技术专家 | 6年经验
+
+## 技术栈
+- 精通：React, TypeScript, Node.js, Next.js, GraphQL
+- 熟练：Python, Go, PostgreSQL, MongoDB, Redis, Docker, K8s
+- 了解：Rust, WebAssembly, AI/LLM 应用开发
+
+## 工作经验
+
+### MegaTech (2021-至今) — 前端架构师 → 全栈 Tech Lead
+- 设计并落地百万级用户 SaaS 平台前端架构（React + Next.js + TypeScript）
+- 从零搭建微前端架构，支撑 4 个业务线独立部署
+- 推动全栈转型，Node.js BFF 层日均调用 1 亿次
+- 管理 12 人全栈团队，建立 OKR 考核和 1on1 成长体系
+- 面试 200+ 候选人，建立技术面试评估标准
+
+### StartupX (2018-2021) — 全栈工程师
+- 从 0 到 1 搭建在线协作平台（React + Node.js + PostgreSQL）
+- 实现实时协作编辑器（CRDT 算法），支持 50 人同时编辑
+- 获 A 轮融资，用户从 0 增长到 50 万
+
+## 教育背景
+- 清华大学 | 计算机科学与技术 | 硕士 | 2016-2018
+- 华中科技大学 | 软件工程 | 本科 | 2012-2016
+
+## 开源 & 社区
+- Next.js 社区贡献者，提交 PR 15+，包括 i18n 路由优化
+- 自研 React 状态管理库 mini-store，1000+ GitHub Stars
+- QCon 2024 讲师：《大规模全栈应用的架构演进》
+- 技术播客「前端夜谈」主理人，累计播放 50 万+
+
+## 语言
+- 中文（母语）| 英文（流利，TOEFL 105）

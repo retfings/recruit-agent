@@ -1,16 +1,41 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
+
+interface ResumeFile {
+  name: string;
+  text: string;
+  status: "uploading" | "parsed" | "error";
+  error?: string;
+}
+
+interface MatchResult {
+  candidateId: string;
+  overallScore: number;
+  dimensionScores: { dimension: string; score: number; reasoning: string }[];
+  highlights: string[];
+  concerns: string[];
+  followUpQuestions: string[];
+}
+
+const DEMO_FILES = [
+  { name: "张三-高级前端.txt", label: "张三 · 4年React全栈 · 强匹配" },
+  { name: "李四-中级前端.txt", label: "李四 · 2年Vue · 低匹配" },
+  { name: "王五-全栈专家.txt", label: "王五 · 6年全栈 · 强匹配" },
+];
 
 export default function HomePage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
   const [job, setJob] = useState<any>(null);
-  const [candidates, setCandidates] = useState("");
+  const [resumes, setResumes] = useState<ResumeFile[]>([]);
   const [screening, setScreening] = useState(false);
-  const [results, setResults] = useState<any>(null);
+  const [results, setResults] = useState<MatchResult[] | null>(null);
   const [error, setError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 1: Create Job
   const handleCreateJob = async () => {
@@ -33,22 +58,111 @@ export default function HomePage() {
     }
   };
 
-  // Step 2: Screen Candidates
-  const handleScreen = async () => {
-    if (!candidates.trim() || !job) return;
-    setScreening(true);
+  // File upload handler
+  const handleFiles = useCallback(async (files: FileList | File[]) => {
+    const fileArr = Array.from(files).filter(
+      (f) => f.name.match(/\.(pdf|docx?|txt)$/i) || f.type === "text/plain"
+    );
+
+    if (fileArr.length === 0) {
+      setError("请上传 PDF、Word 或 TXT 格式的文件");
+      return;
+    }
+
+    // Set uploading state
+    const uploading: ResumeFile[] = fileArr.map((f) => ({
+      name: f.name,
+      text: "",
+      status: "uploading" as const,
+    }));
+    setResumes((prev) => [...prev, ...uploading]);
+
+    const formData = new FormData();
+    fileArr.forEach((f) => formData.append("files", f));
+
+    try {
+      const res = await fetch("/api/parse-resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error("解析失败");
+
+      const data = await res.json();
+      const parsed: ResumeFile[] = data.results.map((r: any) => ({
+        name: r.name,
+        text: r.text,
+        status: r.error ? ("error" as const) : ("parsed" as const),
+        error: r.error,
+      }));
+
+      // Replace uploading placeholders with parsed results
+      setResumes((prev) => {
+        const uploadNames = new Set(fileArr.map((f) => f.name));
+        const others = prev.filter((r) => !uploadNames.has(r.name));
+        return [...others, ...parsed];
+      });
+    } catch (err: any) {
+      setError(`文件解析失败: ${err.message}`);
+      // Remove uploading placeholders
+      setResumes((prev) => {
+        const uploadNames = new Set(fileArr.map((f) => f.name));
+        return prev.filter((r) => !uploadNames.has(r.name) || r.status !== "uploading");
+      });
+    }
+  }, []);
+
+  // Drop handlers
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+  const onDragLeave = () => setDragOver(false);
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFiles(e.dataTransfer.files);
+  };
+
+  // Load demo files
+  const loadDemo = async () => {
+    setDemoLoading(true);
     setError("");
     try {
-      const resumeBlocks = candidates
-        .split("---")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      const files: File[] = [];
+      for (const demo of DEMO_FILES) {
+        const res = await fetch(`/demo/${demo.name}`);
+        if (!res.ok) continue;
+        const text = await res.text();
+        const blob = new Blob([text], { type: "text/plain" });
+        files.push(new File([blob], demo.name, { type: "text/plain" }));
+      }
+      if (files.length > 0) handleFiles(files);
+    } catch (err: any) {
+      setError(`示例加载失败: ${err.message}`);
+    } finally {
+      setDemoLoading(false);
+    }
+  };
 
-      const candidateList = resumeBlocks.map((text, i) => ({
+  const removeResume = (name: string) => {
+    setResumes((prev) => prev.filter((r) => r.name !== name));
+  };
+
+  // Step 2: Screen Candidates
+  const handleScreen = async () => {
+    const parsed = resumes.filter((r) => r.status === "parsed");
+    if (parsed.length === 0 || !job) return;
+
+    setScreening(true);
+    setError("");
+
+    try {
+      const candidateList = parsed.map((r, i) => ({
         id: crypto.randomUUID(),
-        name: `候选人 ${i + 1}`,
+        name: r.name.replace(/\.[^.]+$/, ""),
         email: `candidate${i + 1}@example.com`,
-        resumeText: text,
+        resumeText: r.text,
         status: "new" as const,
         createdAt: new Date().toISOString(),
       }));
@@ -72,9 +186,11 @@ export default function HomePage() {
   const handleReset = () => {
     setJob(null);
     setResults(null);
-    setCandidates("");
+    setResumes([]);
     setError("");
   };
+
+  // --- RENDER ---
 
   return (
     <main className="min-h-screen bg-gray-50">
@@ -85,10 +201,8 @@ export default function HomePage() {
             <span className="text-3xl">🤖</span>
             <h1 className="text-3xl font-bold">Recruit Agent</h1>
           </div>
-          <p className="text-lg text-blue-100 mb-1">
-            AI 智能招聘 — 让 Agent 替你筛选、面试、评估候选人
-          </p>
-          <p className="text-sm text-blue-200">降本 70%，提速 10x</p>
+          <p className="text-lg text-blue-100 mb-1">AI 智能招聘 — 让 Agent 替你筛选、面试、评估候选人</p>
+          <p className="text-sm text-blue-200">上传简历 → AI 自动匹配打分 → 降本增效</p>
         </div>
       </div>
 
@@ -102,26 +216,20 @@ export default function HomePage() {
 
           {!job ? (
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">岗位名称</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="例：高级前端工程师"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">职位描述</label>
-                <textarea
-                  rows={5}
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  placeholder="粘贴或描述职位要求...&#10;例：需要3年以上 React 经验，熟悉 TypeScript 和 Node.js，有大型项目架构经验优先..."
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
-                />
-              </div>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="岗位名称，例：高级前端工程师"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              />
+              <textarea
+                rows={5}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="职位描述，描述技能要求、经验、学历等&#10;例：需要3年以上 React 经验，精通 TypeScript 和 Node.js，有大型项目架构经验优先，本科及以上学历..."
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none"
+              />
               <button
                 onClick={handleCreateJob}
                 disabled={loading || !title || !description}
@@ -133,7 +241,7 @@ export default function HomePage() {
           ) : (
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-green-800">✅ 岗位已创建：{job.title}</h3>
+                <h3 className="font-semibold text-green-800">✅ {job.title}</h3>
                 <button onClick={handleReset} className="text-sm text-gray-500 hover:text-gray-700">重置</button>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -145,7 +253,7 @@ export default function HomePage() {
                     }`}
                   >
                     {req.level === "must" ? "❗必须" : "👍加分"} {req.name}
-                    {req.yearsRequired ? ` (${req.yearsRequired}年+)` : ""}
+                    {req.yearsRequired ? ` ≥${req.yearsRequired}年` : ""}
                   </span>
                 ))}
               </div>
@@ -153,57 +261,131 @@ export default function HomePage() {
           )}
         </div>
 
-        {/* Step 2: Screen Candidates */}
+        {/* Step 2: Upload Resumes */}
         {job && (
           <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
             <div className="flex items-center gap-2 mb-6">
               <span className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold">2</span>
-              <h2 className="text-xl font-semibold">粘贴简历 · AI 批量筛选</h2>
+              <h2 className="text-xl font-semibold">上传简历 · 支持 PDF / Word / TXT</h2>
             </div>
 
-            <p className="text-sm text-gray-500 mb-3">
-              每份简历以 <code className="bg-gray-100 px-1 rounded">---</code> 分隔，自由文本格式
-            </p>
-            <textarea
-              rows={10}
-              value={candidates}
-              onChange={(e) => setCandidates(e.target.value)}
-              placeholder={`张三，3年前端开发，精通 React/TypeScript/Vue，本科计算机，参与过电商平台架构设计...
-
----
-李四，5年全栈工程师，Node.js/Python/React，硕士学历，带过3人团队，负责过百万级用户系统...
-
----
-王五，2年前端，Vue/JavaScript，大专学历，做过3个外包项目...`}
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none resize-none text-sm font-mono"
-            />
-
-            <button
-              onClick={handleScreen}
-              disabled={screening || !candidates.trim()}
-              className="mt-4 w-full py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+            {/* Upload area */}
+            <div
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+              onClick={() => fileInputRef.current?.click()}
+              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition ${
+                dragOver
+                  ? "border-blue-500 bg-blue-50"
+                  : "border-gray-300 hover:border-blue-400 hover:bg-gray-50"
+              }`}
             >
-              {screening ? "🤖 AI 正在逐份分析..." : "🚀 开始 AI 筛选"}
-            </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept=".pdf,.doc,.docx,.txt,text/plain"
+                onChange={(e) => e.target.files && handleFiles(e.target.files)}
+                className="hidden"
+              />
+              <div className="text-4xl mb-3">📂</div>
+              <p className="text-gray-700 font-medium">拖拽简历文件到此处，或点击选择</p>
+              <p className="text-sm text-gray-400 mt-1">支持 PDF · Word (.docx) · TXT，可多选</p>
+            </div>
+
+            {/* Demo files quick load */}
+            {resumes.length === 0 && (
+              <div className="mt-4 text-center">
+                <span className="text-sm text-gray-400 mr-2">没有简历？试试示例：</span>
+                <button
+                  onClick={loadDemo}
+                  disabled={demoLoading}
+                  className="text-sm text-blue-600 hover:text-blue-800 font-medium underline disabled:opacity-50"
+                >
+                  {demoLoading ? "加载中..." : "📥 加载 3 份示例简历"}
+                </button>
+              </div>
+            )}
+
+            {/* Resume list */}
+            {resumes.length > 0 && (
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-medium text-gray-700">
+                    已上传 {resumes.length} 份简历
+                    <span className="text-gray-400 text-sm ml-2">
+                      ({resumes.filter((r) => r.status === "parsed").length} 份就绪)
+                    </span>
+                  </h3>
+                  {resumes.length < 3 && (
+                    <button
+                      onClick={loadDemo}
+                      disabled={demoLoading}
+                      className="text-sm text-blue-600 hover:text-blue-800 underline disabled:opacity-50"
+                    >
+                      {demoLoading ? "..." : "+ 加载示例"}
+                    </button>
+                  )}
+                </div>
+
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {resumes.map((r) => (
+                    <div
+                      key={r.name}
+                      className={`flex items-center justify-between px-4 py-2 rounded-lg border ${
+                        r.status === "parsed"
+                          ? "bg-green-50 border-green-200"
+                          : r.status === "error"
+                          ? "bg-red-50 border-red-200"
+                          : "bg-gray-50 border-gray-200 animate-pulse"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span>
+                          {r.status === "parsed" ? "✅" : r.status === "error" ? "❌" : "⏳"}
+                        </span>
+                        <span className="text-sm font-medium">{r.name}</span>
+                        {r.error && (
+                          <span className="text-xs text-red-500">{r.error}</span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => removeResume(r.name)}
+                        className="text-gray-400 hover:text-red-500 text-sm"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Screen button */}
+            {resumes.filter((r) => r.status === "parsed").length > 0 && (
+              <button
+                onClick={handleScreen}
+                disabled={screening}
+                className="mt-6 w-full py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              >
+                {screening ? "🤖 AI 正在分析每份简历..." : `🚀 开始 AI 筛选（${resumes.filter((r) => r.status === "parsed").length} 份简历）`}
+              </button>
+            )}
           </div>
         )}
 
         {/* Error */}
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-6">
-            ❌ {error}
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 mb-6">❌ {error}</div>
         )}
 
         {/* Results */}
         {results && (
           <div className="mb-12">
-            <h2 className="text-xl font-semibold mb-4">
-              📊 筛选结果 — {results.length} 人，按匹配度降序
-            </h2>
-
+            <h2 className="text-xl font-semibold mb-4">📊 筛选结果 — 按匹配度降序</h2>
             <div className="space-y-4">
-              {results.map((r: any, i: number) => (
+              {results.map((r, i) => (
                 <div
                   key={i}
                   className="bg-white rounded-xl shadow-sm p-6 border-l-4"
@@ -215,25 +397,36 @@ export default function HomePage() {
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl font-bold text-gray-300">#{i + 1}</span>
-                      <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                        r.overallScore >= 80 ? "bg-green-100 text-green-800" :
-                        r.overallScore >= 60 ? "bg-amber-100 text-amber-800" :
-                        "bg-red-100 text-red-800"
-                      }`}>
+                      <span
+                        className={`px-2 py-0.5 rounded text-xs font-bold ${
+                          r.overallScore >= 80
+                            ? "bg-green-100 text-green-800"
+                            : r.overallScore >= 60
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-red-100 text-red-800"
+                        }`}
+                      >
                         {r.overallScore >= 80 ? "🔥 强烈推荐" : r.overallScore >= 60 ? "🟡 待定" : "🔴 不推荐"}
                       </span>
                     </div>
                     <div className="text-right">
-                      <span className={`text-3xl font-bold ${
-                        r.overallScore >= 80 ? "text-green-600" : r.overallScore >= 60 ? "text-amber-600" : "text-red-600"
-                      }`}>{r.overallScore}</span>
+                      <span
+                        className={`text-3xl font-bold ${
+                          r.overallScore >= 80
+                            ? "text-green-600"
+                            : r.overallScore >= 60
+                            ? "text-amber-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {r.overallScore}
+                      </span>
                       <span className="text-gray-400">/100</span>
                     </div>
                   </div>
 
-                  {/* Dimension Scores */}
                   <div className="grid grid-cols-4 gap-3 mb-4">
-                    {r.dimensionScores?.map((d: any, j: number) => (
+                    {r.dimensionScores?.map((d, j) => (
                       <div key={j} className="bg-gray-50 rounded-lg p-3 text-center">
                         <div className="text-xs text-gray-500 mb-1">{d.dimension}</div>
                         <div className="text-lg font-bold text-gray-800">{d.score}</div>
@@ -246,7 +439,7 @@ export default function HomePage() {
                     <div className="mb-3">
                       <h4 className="text-sm font-medium text-green-700 mb-1">✨ 亮点</h4>
                       <ul className="list-disc list-inside text-sm text-gray-700">
-                        {r.highlights.map((h: string, k: number) => (
+                        {r.highlights.map((h, k) => (
                           <li key={k}>{h}</li>
                         ))}
                       </ul>
@@ -257,7 +450,7 @@ export default function HomePage() {
                     <div className="mb-3">
                       <h4 className="text-sm font-medium text-amber-700 mb-1">⚠️ 关注点</h4>
                       <ul className="list-disc list-inside text-sm text-gray-700">
-                        {r.concerns.map((c: string, k: number) => (
+                        {r.concerns.map((c, k) => (
                           <li key={k}>{c}</li>
                         ))}
                       </ul>
@@ -268,7 +461,7 @@ export default function HomePage() {
                     <div>
                       <h4 className="text-sm font-medium text-blue-700 mb-1">💬 建议追问</h4>
                       <ul className="list-disc list-inside text-sm text-gray-700">
-                        {r.followUpQuestions.map((q: string, k: number) => (
+                        {r.followUpQuestions.map((q, k) => (
                           <li key={k}>{q}</li>
                         ))}
                       </ul>
@@ -279,27 +472,27 @@ export default function HomePage() {
             </div>
           </div>
         )}
-      </div>
 
-      {/* Feature Cards */}
-      {!job && (
-        <div className="max-w-5xl mx-auto px-6 pb-16">
-          <h2 className="text-2xl font-semibold mb-8 text-center">核心能力</h2>
-          <div className="grid md:grid-cols-3 gap-6">
-            {[
-              { icon: "📋", title: "JD 智能生成", desc: "输入需求 → AI 自动解析为结构化标签" },
-              { icon: "🔍", title: "简历精准匹配", desc: "技能/经验/学历/素质四维打分，原文引用" },
-              { icon: "🎤", title: "AI 模拟面试", desc: "JD+简历自动出题，实时评估，生成报告" },
-            ].map((f, i) => (
-              <div key={i} className="bg-white rounded-xl p-6 shadow-sm border hover:shadow-md transition">
-                <div className="text-3xl mb-3">{f.icon}</div>
-                <h3 className="font-semibold mb-2">{f.title}</h3>
-                <p className="text-gray-600 text-sm">{f.desc}</p>
-              </div>
-            ))}
+        {/* Feature Cards (only when no job yet) */}
+        {!job && (
+          <div className="max-w-5xl mx-auto px-6 pb-16">
+            <h2 className="text-2xl font-semibold mb-8 text-center">核心能力</h2>
+            <div className="grid md:grid-cols-3 gap-6">
+              {[
+                { icon: "📋", title: "JD 智能生成", desc: "输入需求 → AI 自动解析为结构化标签" },
+                { icon: "🔍", title: "简历精准匹配", desc: "支持 PDF/Word/TXT，四维度智能打分" },
+                { icon: "🎤", title: "AI 模拟面试", desc: "JD+简历自动出题，实时评估，生成报告" },
+              ].map((f, i) => (
+                <div key={i} className="bg-white rounded-xl p-6 shadow-sm border hover:shadow-md transition">
+                  <div className="text-3xl mb-3">{f.icon}</div>
+                  <h3 className="font-semibold mb-2">{f.title}</h3>
+                  <p className="text-gray-600 text-sm">{f.desc}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </main>
   );
 }

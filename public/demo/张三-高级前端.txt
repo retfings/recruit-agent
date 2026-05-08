@@ -1,0 +1,30 @@
+张三 | 高级前端工程师 | 4年经验
+
+## 技术栈
+- 精通：React, TypeScript, Next.js, Node.js
+- 熟练：GraphQL, PostgreSQL, Redis, Docker
+- 了解：Python, Go, AWS
+
+## 工作经验
+
+### ABC 电商 (2022-至今) — 高级前端开发
+- 主导电商平台前端重构，从 jQuery 迁移到 React + TypeScript
+- 首屏加载时间从 5 秒优化至 1.2 秒，转化率提升 18%
+- 带领 5 人前端团队，制定代码规范和 Review 流程
+- 自研组件库 50+ 组件，覆盖 8 个业务线
+
+### XYZ 科技 (2020-2022) — 前端开发
+- 参与 SaaS 管理后台开发，React + Ant Design
+- 实现复杂表单引擎，支持动态配置 100+ 字段类型
+- 编写单元测试 200+，覆盖率 85%
+
+## 教育背景
+- 北京大学 | 计算机科学 | 本科 | 2016-2020
+
+## 项目亮点
+- 开源 Next.js 插件 next-api-middleware，500+ GitHub Stars
+- 技术博客 50+ 篇，掘金年度优秀作者
+- 在 React China 2024 分享《大规模 React 应用性能优化》
+
+## 语言
+- 中文（母语）| 英文（流利，CET-6 620）
