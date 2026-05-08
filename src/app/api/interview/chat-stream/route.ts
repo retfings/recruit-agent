@@ -24,11 +24,14 @@ const TEMPLATE_PROMPTS: Record<string, string> = {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { history, jobTitle, template } = body as {
+    const { history, jobTitle, template, difficulty } = body as {
       history: { role: string; content: string; intent?: string; feedback?: any }[];
       jobTitle?: string;
       template?: string;
+      difficulty?: number;
     };
+
+    const targetRounds = difficulty ? difficulty * 10 : 20;
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -62,7 +65,7 @@ ${templatePrompt}
 2. 每次只问一个问题，不要一次问多个
 3. 根据候选人的回答动态调整下一个问题——可以追问细节、深挖技术点、切换话题
 4. 覆盖维度：技术深度、项目经验、解决问题能力、沟通表达、团队协作、学习能力、职业规划
-5. 面试总共约 5-7 轮
+5. 面试总共约 ${targetRounds} 轮，当收集到足够信息后结束
 6. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
 7. 提问风格专业但不冷酷，就像一个经验丰富的面试官
 

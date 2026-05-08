@@ -30,6 +30,14 @@ const INTERVIEW_TEMPLATES = [
   { id: "管理岗", label: "管理岗", desc: "团队建设、项目管理、战略规划、人才培养" },
 ];
 
+const DIFFICULTY_LEVELS = [
+  { level: 1, label: "⭐ 初级", questions: 10, desc: "基础摸底" },
+  { level: 2, label: "⭐⭐ 中级", questions: 20, desc: "全面考察" },
+  { level: 3, label: "⭐⭐⭐ 高级", questions: 30, desc: "深度挖掘" },
+  { level: 4, label: "⭐⭐⭐⭐ 资深", questions: 40, desc: "架构综合" },
+  { level: 5, label: "⭐⭐⭐⭐⭐ 专家", questions: 50, desc: "全维度" },
+];
+
 const SELF_ASSESS_DIMS = [
   { key: "tech", label: "技术能力" },
   { key: "project", label: "项目经验" },
@@ -64,6 +72,7 @@ export default function InterviewPage() {
   const [voiceId, setVoiceId] = useState("male-qn-qingse");
   const [speed, setSpeed] = useState(1);
   const [template, setTemplate] = useState("");
+  const [difficulty, setDifficulty] = useState(2);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [loading, setLoading] = useState(false);
@@ -94,6 +103,9 @@ export default function InterviewPage() {
     return () => clearTimeout(t);
   }, [countdown, phase, apiKey]);
 
+  // Get target question count for current difficulty
+  const targetQuestions = DIFFICULTY_LEVELS.find((d) => d.level === difficulty)?.questions || 20;
+
   const speak = useCallback(async (text: string): Promise<string | null> => {
     const key = apiKey || localStorage.getItem(STORAGE_KEY);
     if (!key) { setError("未配置 API Key"); return null; }
@@ -111,7 +123,7 @@ export default function InterviewPage() {
     try {
       const turns = history.filter((m) => m.role === "interviewer" || m.role === "candidate").map((m) => ({ role: m.role as "interviewer" | "candidate", content: m.content, intent: m.intent, feedback: m.feedback }));
       const res = await fetch("/api/interview/chat-stream", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined }), signal: ac.signal,
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined, difficulty }), signal: ac.signal,
       });
       if (!res.ok) throw new Error((await res.json()).error || "请求失败");
       const reader = res.body!.getReader();
@@ -142,7 +154,7 @@ export default function InterviewPage() {
       if (err.name === "AbortError") return null;
       setError(err.message); return null;
     } finally { setLoading(false); setStreamText(""); abortRef.current = null; }
-  }, [jobTitle, jobDesc, template]);
+  }, [jobTitle, jobDesc, template, difficulty]);
 
   const startInterview = async () => {
     setPhase("qa"); setError("");
@@ -239,6 +251,9 @@ export default function InterviewPage() {
                 </span>
               )}
             </div>
+            <select value={difficulty} onChange={(e) => setDifficulty(Number(e.target.value))} className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 outline-none text-xs" title={DIFFICULTY_LEVELS.find(d=>d.level===difficulty)?.desc}>
+              {DIFFICULTY_LEVELS.map((d) => <option key={d.level} value={d.level}>{d.label} ({d.questions}题)</option>)}
+            </select>
             <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
               <input type="checkbox" checked={showFeedback} onChange={(e) => setShowFeedback(e.target.checked)} className="w-3 h-3 accent-green-500" />
               实时点评
