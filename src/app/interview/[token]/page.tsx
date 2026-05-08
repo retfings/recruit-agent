@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 const STORAGE_KEY = "recruit_agent_minimax_key";
 const INTERVIEWS_KEY = "recruit_agent_interviews";
@@ -49,9 +49,7 @@ function hexToAudioUrl(hex: string, format = "mp3"): string {
   return URL.createObjectURL(new Blob([bytes], { type: `audio/${format}` }));
 }
 
-export default function VoiceInterviewPage() {
-  const params = useParams();
-  const token = params.token as string;
+export default function InterviewPage() {
   const searchParams = useSearchParams();
   const jobTitle = searchParams.get("job") || "";
   const jobDesc = searchParams.get("desc") || "";
@@ -63,6 +61,7 @@ export default function VoiceInterviewPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [currentAnswer, setCurrentAnswer] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streamText, setStreamText] = useState("");
   const [phase, setPhase] = useState<"selfAssess" | "countdown" | "qa" | "done">("selfAssess");
   const [countdown, setCountdown] = useState(3);
   const [error, setError] = useState("");
@@ -74,9 +73,10 @@ export default function VoiceInterviewPage() {
   const chatRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => { const s = localStorage.getItem(STORAGE_KEY); if (s) setApiKey(s); }, []);
-  useEffect(() => { chatRef.current?.scrollTo(0, chatRef.current.scrollHeight); }, [messages]);
+  useEffect(() => { chatRef.current?.scrollTo(0, chatRef.current.scrollHeight); }, [messages, streamText]);
   useEffect(() => {
     if (pendingAudio && audioRef.current) { audioRef.current.src = pendingAudio; audioRef.current.play().catch(() => {}); setPendingAudio(null); }
   }, [pendingAudio]);
@@ -97,22 +97,53 @@ export default function VoiceInterviewPage() {
     } catch (err: any) { setError(err.message); return null; }
   }, [apiKey, voiceId, speed]);
 
-  const chatWithAI = useCallback(async (history: ChatMessage[]): Promise<any> => {
+  /** Stream chat — shows live token output then parses JSON at end */
+  const chatStream = useCallback(async (history: ChatMessage[]): Promise<any> => {
+    setStreamText(""); setLoading(true);
+    const ac = new AbortController(); abortRef.current = ac;
     try {
       const turns = history.filter((m) => m.role === "interviewer" || m.role === "candidate").map((m) => ({ role: m.role as "interviewer" | "candidate", content: m.content, intent: m.intent, feedback: m.feedback }));
-      const res = await fetch("/api/interview/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined }) });
-      if (res.ok) return await res.json();
-      throw new Error((await res.json()).error || "AI chat 失败");
-    } catch (err: any) { setError(err.message); return null; }
+      const res = await fetch("/api/interview/chat-stream", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ history: turns, jobTitle: jobDesc || jobTitle, template: template || undefined }), signal: ac.signal,
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "请求失败");
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        // SSE format: data: {...}\n\n
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const payload = line.slice(6);
+            if (payload === "[DONE]") continue;
+            try {
+              const evt = JSON.parse(payload);
+              if (evt.token) full += evt.token;
+              if (evt.done) { setStreamText(""); setLoading(false); return JSON.parse(full); }
+              setStreamText(full);
+            } catch {}
+          }
+        }
+      }
+      setStreamText("");
+      return JSON.parse(full);
+    } catch (err: any) {
+      if (err.name === "AbortError") return null;
+      setError(err.message); return null;
+    } finally { setLoading(false); setStreamText(""); abortRef.current = null; }
   }, [jobTitle, jobDesc, template]);
 
   const startInterview = async () => {
-    setLoading(true); setPhase("qa"); setError("");
-    const result = await chatWithAI([]);
-    if (!result?.nextQuestion) { setError("AI 无法生成面试问题"); setLoading(false); return; }
+    setPhase("qa"); setError("");
+    const result = await chatStream([]);
+    if (!result?.nextQuestion) { setError("AI 无法生成面试问题"); return; }
     const firstMsg: ChatMessage = { role: "interviewer", content: result.nextQuestion, intent: result.intent };
     const audioUrl = await speak(firstMsg.content); firstMsg.audioUrl = audioUrl;
-    setMessages([firstMsg]); setLoading(false);
+    setMessages([firstMsg]);
     if (audioUrl) setPendingAudio(audioUrl);
   };
 
@@ -120,15 +151,15 @@ export default function VoiceInterviewPage() {
     if (!currentAnswer.trim() || loading) return;
     const answer: ChatMessage = { role: "candidate", content: currentAnswer.trim() };
     const withAnswer = [...messages, answer];
-    setMessages(withAnswer); setCurrentAnswer(""); setLoading(true);
-    const result = await chatWithAI(withAnswer);
-    if (!result) { setLoading(false); return; }
+    setMessages(withAnswer); setCurrentAnswer("");
+
+    const result = await chatStream(withAnswer);
+    if (!result) return;
     const newMsgs = [...withAnswer];
     if (result.feedback) newMsgs.push({ role: "feedback", content: "", feedback: result.feedback });
     if (result.isComplete) {
-      setMessages(newMsgs); setPhase("done"); setLoading(false); setReportLoading(true);
-      await generateReport(newMsgs); setReportLoading(false);
-      return;
+      setMessages(newMsgs); setPhase("done"); setReportLoading(true);
+      await generateReport(newMsgs); setReportLoading(false); return;
     }
     if (result.nextQuestion) {
       const nextQ: ChatMessage = { role: "interviewer", content: result.nextQuestion, intent: result.intent };
@@ -136,7 +167,6 @@ export default function VoiceInterviewPage() {
       newMsgs.push(nextQ); setMessages(newMsgs);
       if (audioUrl) setPendingAudio(audioUrl);
     }
-    setLoading(false);
   };
 
   const generateReport = async (msgs: ChatMessage[]) => {
@@ -152,14 +182,8 @@ export default function VoiceInterviewPage() {
       const res = await fetch("/api/interview/evaluate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ qaPairs }) });
       if (res.ok) {
         const rep = await res.json();
-        // Save to localStorage
-        const record = { id: Date.now().toString(36), date: new Date().toISOString(), jobTitle: jobDesc || jobTitle || "通用面试", template: template || "通用", overallScore: rep.overallScore, dimensions: rep.dimensions, selfAssessment: Object.keys(selfScores).length > 0 ? selfScores : undefined, strengths: rep.strengths, weaknesses: rep.weaknesses, recommendation: rep.recommendation, interviewSummary: rep.interviewSummary, qaCount: qaPairs.length, messagesSummary: msgs };
-        try {
-          const existing = JSON.parse(localStorage.getItem(INTERVIEWS_KEY) || "[]");
-          existing.unshift(record);
-          if (existing.length > 50) existing.length = 50;
-          localStorage.setItem(INTERVIEWS_KEY, JSON.stringify(existing));
-        } catch {}
+        const record = { id: Date.now().toString(36), date: new Date().toISOString(), jobTitle: jobDesc || jobTitle || "通用面试", template: template || "通用", overallScore: rep.overallScore, dimensions: rep.dimensions, selfAssessment: Object.keys(selfScores).length > 0 ? selfScores : undefined, strengths: rep.strengths, weaknesses: rep.weaknesses, recommendation: rep.recommendation, interviewSummary: rep.interviewSummary, qaCount: qaPairs.length };
+        try { const existing = JSON.parse(localStorage.getItem(INTERVIEWS_KEY) || "[]"); existing.unshift(record); if (existing.length > 50) existing.length = 50; localStorage.setItem(INTERVIEWS_KEY, JSON.stringify(existing)); } catch {}
         setReport({ ...rep, recordId: record.id });
       } else setError((await res.json()).error || "评估失败");
     } catch (err: any) { setError("评估生成失败: " + err.message); }
@@ -170,10 +194,8 @@ export default function VoiceInterviewPage() {
     try {
       const res = await fetch("/api/report/pdf", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ report, selfScores, messages: messages.filter((m) => m.role === "interviewer" || m.role === "candidate") }) });
       if (!res.ok) throw new Error("PDF 生成失败");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = `面试报告_${new Date().toISOString().slice(0, 10)}.pdf`; a.click();
-      URL.revokeObjectURL(url);
+      const blob = await res.blob(); const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `面试报告_${new Date().toISOString().slice(0, 10)}.pdf`; a.click(); URL.revokeObjectURL(url);
     } catch (err: any) { setError("PDF 导出失败: " + err.message); }
   };
 
@@ -190,7 +212,6 @@ export default function VoiceInterviewPage() {
 
   const saveSelfAssess = () => { setPhase("countdown"); setCountdown(3); };
 
-  // RENDER
   return (
     <main className="min-h-screen bg-gray-900 text-white">
       <div className="bg-gray-800 border-b border-gray-700 px-6 py-4">
@@ -220,7 +241,6 @@ export default function VoiceInterviewPage() {
         {!apiKey && (<div className="bg-amber-900/50 border border-amber-700 text-amber-200 rounded-lg p-4 mb-6">⚠️ 未配置 API Key — <a href="/settings" className="underline font-medium">前往设置</a></div>)}
         {error && (<div className="bg-red-900/50 border border-red-700 text-red-200 rounded-lg p-3 mb-6 text-sm">❌ {error} <button onClick={() => setError("")} className="ml-2 underline">关闭</button></div>)}
 
-        {/* Self Assessment */}
         {phase === "selfAssess" && (
           <div className="text-center py-12 max-w-lg mx-auto">
             <h2 className="text-xl font-bold mb-2">🧠 面试前自评</h2>
@@ -275,7 +295,23 @@ export default function VoiceInterviewPage() {
                   </div>
                 );
               })}
-              {loading && (<div className="flex justify-start"><div className="bg-gray-800 rounded-2xl rounded-bl-md px-5 py-3"><span className="animate-spin mr-2">⏳</span><span className="text-sm text-gray-400">AI 正在思考...</span></div></div>)}
+
+              {/* Streaming output */}
+              {streamText && (
+                <div className="flex justify-start">
+                  <div className="max-w-[75%] rounded-2xl rounded-bl-md px-5 py-3 bg-gray-800 border border-blue-700">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs text-blue-400">🤖 AI 正在生成</span>
+                    </div>
+                    <p className="text-sm leading-relaxed text-gray-300 whitespace-pre-wrap font-mono text-xs">{streamText}</p>
+                  </div>
+                </div>
+              )}
+              {loading && !streamText && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-800 rounded-2xl rounded-bl-md px-5 py-3"><span className="animate-spin mr-2">⏳</span><span className="text-sm text-gray-400">连接中...</span></div>
+                </div>
+              )}
             </div>
 
             {phase === "qa" && (
@@ -303,37 +339,27 @@ export default function VoiceInterviewPage() {
 
                 {report && !reportLoading && (
                   <div className="space-y-5">
-                    {/* Overall */}
                     <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 text-center">
                       <div className="inline-flex items-center justify-center w-24 h-24 rounded-full border-4 border-blue-500 bg-blue-500/10 mb-3"><span className="text-3xl font-bold text-blue-400">{report.overallScore}</span></div>
-                      <h3 className="text-lg font-semibold">综合评分</h3>
-                      <p className="text-gray-400 text-sm mt-1 max-w-lg mx-auto">{report.summary}</p>
+                      <h3 className="text-lg font-semibold">综合评分</h3><p className="text-gray-400 text-sm mt-1 max-w-lg mx-auto">{report.summary}</p>
                       <p className="text-gray-500 text-sm mt-2 italic">{report.interviewSummary}</p>
                       {report.recommendation && (<div className={`mt-3 inline-block px-4 py-1 rounded-full text-sm font-medium ${report.recommendation.includes("通过") ? "bg-green-900/50 text-green-400 border border-green-700" : report.recommendation.includes("复试") ? "bg-amber-900/50 text-amber-400 border border-amber-700" : "bg-red-900/50 text-red-400 border border-red-700"}`}>{report.recommendation}</div>)}
                     </div>
 
-                    {/* Self vs AI */}
                     {Object.keys(selfScores).length > 0 && (
                       <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6">
                         <h4 className="font-medium mb-4 text-gray-300">🧠 自评 vs AI 评分对比</h4>
                         <div className="grid grid-cols-5 gap-3 text-center text-xs">
                           {SELF_ASSESS_DIMS.map((d) => {
-                            const aiScore = report.dimensions?.find((dd: any) => {
-                              const map: Record<string, string> = { tech: "技术", project: "项目", communication: "沟通", learning: "学习", teamwork: "协作" };
-                              return dd.name.includes(map[d.key] || d.key);
-                            })?.score;
+                            const map: Record<string, string> = { tech: "技术", project: "项目", communication: "沟通", learning: "学习", teamwork: "协作" };
+                            const aiScore = report.dimensions?.find((dd: any) => dd.name.includes(map[d.key] || d.key))?.score;
                             return (
                               <div key={d.key} className="space-y-1">
                                 <p className="text-gray-400">{d.label}</p>
-                                <p className="text-lg font-bold text-blue-400">{selfScores[d.key]}</p>
-                                <p className="text-xs text-gray-500">自评</p>
+                                <p className="text-lg font-bold text-blue-400">{selfScores[d.key]}</p><p className="text-xs text-gray-500">自评</p>
                                 {aiScore && <p className="text-lg font-bold text-green-400">{aiScore}</p>}
                                 {aiScore && <p className="text-xs text-gray-500">AI 评</p>}
-                                {aiScore && (
-                                  <p className={`text-xs ${Math.abs(selfScores[d.key] * 10 - aiScore) <= 15 ? "text-green-400" : "text-amber-400"}`}>
-                                    偏差 {Math.abs(selfScores[d.key] * 10 - aiScore)}
-                                  </p>
-                                )}
+                                {aiScore && <p className={`text-xs ${Math.abs(selfScores[d.key] * 10 - aiScore) <= 15 ? "text-green-400" : "text-amber-400"}`}>偏差 {Math.abs(selfScores[d.key] * 10 - aiScore)}</p>}
                               </div>
                             );
                           })}
@@ -341,13 +367,12 @@ export default function VoiceInterviewPage() {
                       </div>
                     )}
 
-                    {/* Dimensions */}
                     <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6">
                       <h4 className="font-medium mb-4 text-gray-300">📊 维度评分</h4>
                       <div className="space-y-4">
                         {report.dimensions?.map((d: any, i: number) => (
                           <div key={i}>
-                            <div className="flex items-center justify-between mb-1"><span className="text-sm text-gray-400">{d.name}</span><span className="text-sm font-medium">{d.score}<span className="text-gray-600">/100</span></span></div>
+                            <div className="flex justify-between mb-1"><span className="text-sm text-gray-400">{d.name}</span><span className="text-sm font-medium">{d.score}<span className="text-gray-600">/100</span></span></div>
                             <div className="w-full bg-gray-700 rounded-full h-2"><div className={`h-2 rounded-full ${d.score >= 80 ? "bg-green-500" : d.score >= 60 ? "bg-amber-500" : "bg-red-500"}`} style={{ width: `${d.score}%` }} /></div>
                             <p className="text-xs text-gray-500 mt-1">{d.comment}</p>
                           </div>
@@ -355,7 +380,6 @@ export default function VoiceInterviewPage() {
                       </div>
                     </div>
 
-                    {/* Q&A Review */}
                     <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6">
                       <h4 className="font-medium mb-4 text-gray-300">📋 问答回顾</h4>
                       <div className="space-y-4">
@@ -364,7 +388,7 @@ export default function VoiceInterviewPage() {
                           return (
                             <div key={qi} className="border-l-2 border-gray-700 pl-4 py-1">
                               <p className="text-sm font-medium text-gray-300">Q{qi + 1}: {q.content}</p>
-                              {q.intent && <p className="text-xs text-blue-400 mt-1">🎯 考察目的: {q.intent}</p>}
+                              {q.intent && <p className="text-xs text-blue-400 mt-1">🎯 {q.intent}</p>}
                               {a?.role === "candidate" && <p className="text-xs text-gray-500 mt-1 line-clamp-2">答: {a.content.slice(0, 150)}{a.content.length > 150 ? "..." : ""}</p>}
                               {fb?.role === "feedback" && fb.feedback && (
                                 <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
@@ -380,24 +404,13 @@ export default function VoiceInterviewPage() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-green-900/20 border border-green-800 rounded-xl p-4">
-                        <h4 className="font-medium text-green-400 mb-2">✅ 优势</h4>
-                        <ul className="space-y-1">{report.strengths?.map((s: string, i: number) => (<li key={i} className="text-sm text-gray-300">• {s}</li>))}</ul>
-                      </div>
-                      <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
-                        <h4 className="font-medium text-red-400 mb-2">⚠️ 待改进</h4>
-                        <ul className="space-y-1">{report.weaknesses?.map((w: string, i: number) => (<li key={i} className="text-sm text-gray-300">• {w}</li>))}</ul>
-                      </div>
+                      <div className="bg-green-900/20 border border-green-800 rounded-xl p-4"><h4 className="font-medium text-green-400 mb-2">✅ 优势</h4><ul className="space-y-1">{report.strengths?.map((s: string, i: number) => (<li key={i} className="text-sm text-gray-300">• {s}</li>))}</ul></div>
+                      <div className="bg-red-900/20 border border-red-800 rounded-xl p-4"><h4 className="font-medium text-red-400 mb-2">⚠️ 待改进</h4><ul className="space-y-1">{report.weaknesses?.map((w: string, i: number) => (<li key={i} className="text-sm text-gray-300">• {w}</li>))}</ul></div>
                     </div>
-                    {report.suggestions?.length > 0 && (
-                      <div className="bg-gray-800 border border-gray-600 rounded-xl p-4">
-                        <h4 className="font-medium text-gray-300 mb-2">💡 改进建议</h4>
-                        {report.suggestions.map((sg: string, i: number) => (<p key={i} className="text-sm text-gray-400">{i + 1}. {sg}</p>))}
-                      </div>
-                    )}
+                    {report.suggestions?.length > 0 && (<div className="bg-gray-800 border border-gray-600 rounded-xl p-4"><h4 className="font-medium text-gray-300 mb-2">💡 改进建议</h4>{report.suggestions.map((sg: string, i: number) => (<p key={i} className="text-sm text-gray-400">{i + 1}. {sg}</p>))}</div>)}
                   </div>
                 )}
-                <div className="text-center pt-4 flex justify-center gap-3">
+                <div className="text-center pt-4">
                   <button onClick={() => { setPhase("selfAssess"); setMessages([]); setCurrentAnswer(""); setReport(null); setSelfScores({}); }} className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition">重新开始</button>
                 </div>
               </div>
