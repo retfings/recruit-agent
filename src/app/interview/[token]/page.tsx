@@ -17,11 +17,11 @@ const MINIMAX_VOICES: { id: string; label: string }[] = [
 ];
 
 const INTERVIEW_TEMPLATES = [
-  { id: "", label: "通用技术面" },
-  { id: "前端专场", label: "前端专场" },
-  { id: "后端专场", label: "后端专场" },
-  { id: "行为面试", label: "行为面试" },
-  { id: "管理岗", label: "管理岗" },
+  { id: "", label: "通用技术面", desc: "技术深度、架构能力、编程基础、系统设计" },
+  { id: "前端专场", label: "前端专场", desc: "React/Vue/TS 深度、CSS/性能优化、浏览器原理、工程化" },
+  { id: "后端专场", label: "后端专场", desc: "数据库优化、并发处理、系统架构、API 设计" },
+  { id: "行为面试", label: "行为面试", desc: "STAR 法则：团队协作、冲突处理、领导力、压力应对" },
+  { id: "管理岗", label: "管理岗", desc: "团队建设、项目管理、战略规划、人才培养" },
 ];
 
 const SELF_ASSESS_DIMS = [
@@ -69,6 +69,7 @@ export default function InterviewPage() {
   const [listening, setListening] = useState(false);
   const [report, setReport] = useState<any>(null);
   const [reportLoading, setReportLoading] = useState(false);
+  const [showFeedback, setShowFeedback] = useState(false);
   const [selfScores, setSelfScores] = useState<Record<string, number>>({});
   const chatRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -222,9 +223,20 @@ export default function InterviewPage() {
             {jobTitle && <span className="text-sm text-gray-500 hidden sm:inline">| {jobTitle}{template ? ` · ${template}` : ""}</span>}
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <select value={template} onChange={(e) => setTemplate(e.target.value)} className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 outline-none text-xs">
-              {INTERVIEW_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-            </select>
+            <div className="relative group">
+              <select value={template} onChange={(e) => setTemplate(e.target.value)} className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 outline-none text-xs">
+                {INTERVIEW_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+              {template && (
+                <span className="text-xs text-blue-400 ml-1 cursor-help" title={INTERVIEW_TEMPLATES.find(t=>t.id===template)?.desc}>
+                  ⓘ
+                </span>
+              )}
+            </div>
+            <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+              <input type="checkbox" checked={showFeedback} onChange={(e) => setShowFeedback(e.target.checked)} className="w-3 h-3 accent-green-500" />
+              实时点评
+            </label>
             <select value={voiceId} onChange={(e) => setVoiceId(e.target.value)} className="bg-gray-700 border border-gray-600 text-white rounded px-2 py-1 outline-none text-xs">
               {MINIMAX_VOICES.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
             </select>
@@ -270,7 +282,7 @@ export default function InterviewPage() {
           <>
             <div ref={chatRef} className="space-y-4 mb-6 max-h-[55vh] overflow-y-auto pr-2">
               {messages.map((msg, i) => {
-                if (msg.role === "feedback" && msg.feedback) {
+                if (msg.role === "feedback" && msg.feedback && showFeedback) {
                   return (
                     <div key={i} className="flex justify-center my-2">
                       <div className="max-w-[85%] bg-gray-800/50 border border-gray-700 rounded-xl p-4 text-xs space-y-2">
