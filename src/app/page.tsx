@@ -44,7 +44,16 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const toggleExpand = (name: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(name) ? next.delete(name) : next.add(name);
+      return next;
+    });
+  };
 
   // Step 1: Create Job
   const handleCreateJob = async () => {
@@ -322,7 +331,7 @@ export default function HomePage() {
               <div className="mt-6">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="font-medium text-gray-700">
-                    已上传 {resumes.length} 份简历
+                    📄 已上传 {resumes.length} 份简历
                     <span className="text-gray-400 text-sm ml-2">
                       ({resumes.filter((r) => r.status === "parsed").length} 份就绪)
                     </span>
@@ -338,35 +347,111 @@ export default function HomePage() {
                   )}
                 </div>
 
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {resumes.map((r) => (
-                    <div
-                      key={r.name}
-                      className={`flex items-center justify-between px-4 py-2 rounded-lg border ${
-                        r.status === "parsed"
-                          ? "bg-green-50 border-green-200"
-                          : r.status === "error"
-                          ? "bg-red-50 border-red-200"
-                          : "bg-gray-50 border-gray-200 animate-pulse"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span>
-                          {r.status === "parsed" ? "✅" : r.status === "error" ? "❌" : "⏳"}
-                        </span>
-                        <span className="text-sm font-medium">{r.name}</span>
-                        {r.error && (
-                          <span className="text-xs text-red-500">{r.error}</span>
+                <div className="space-y-3 max-h-[32rem] overflow-y-auto pr-1">
+                  {resumes.map((r) => {
+                    const isExpanded = expanded.has(r.name);
+                    const wordCount = r.text.length;
+                    const firstLine = r.text.split("\n")[0]?.trim() || r.name;
+                    const expMatch = r.text.match(/(\d+)\s*年/);
+                    const experience = expMatch ? expMatch[0] : null;
+
+                    return (
+                      <div
+                        key={r.name}
+                        className={`rounded-xl border transition-all ${
+                          r.status === "parsed"
+                            ? "bg-white border-gray-200 shadow-sm hover:shadow-md"
+                            : r.status === "error"
+                            ? "bg-red-50 border-red-200"
+                            : "bg-gray-50 border-gray-200 animate-pulse"
+                        }`}
+                      >
+                        {/* Header — always visible */}
+                        <div
+                          className={`flex items-center gap-3 px-4 py-3 ${
+                            r.status === "parsed" ? "cursor-pointer" : ""
+                          }`}
+                          onClick={() => r.status === "parsed" && toggleExpand(r.name)}
+                        >
+                          {/* Avatar */}
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0 ${
+                            r.text.includes("全栈") || r.text.includes("6年") || r.text.includes("5年")
+                              ? "bg-indigo-500"
+                              : r.text.includes("4年") || r.text.includes("3年")
+                              ? "bg-blue-500"
+                              : "bg-gray-400"
+                          }`}>
+                            {firstLine.charAt(0)}
+                          </div>
+
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-gray-800 text-sm truncate">
+                                {firstLine}
+                              </span>
+                              {experience && (
+                                <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded font-medium shrink-0">
+                                  {experience}经验
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              {r.status === "parsed" ? (
+                                <>
+                                  <span className="text-xs text-gray-400">
+                                    {wordCount} 字
+                                  </span>
+                                  <span className="text-xs text-gray-300">·</span>
+                                  <span className="text-xs text-blue-500">{isExpanded ? "收起 ▲" : "展开预览 ▼"}</span>
+                                </>
+                              ) : r.status === "error" ? (
+                                <span className="text-xs text-red-500">{r.error}</span>
+                              ) : (
+                                <span className="text-xs text-gray-400">解析中...</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Status + Remove */}
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                              r.status === "parsed"
+                                ? "bg-green-100 text-green-700"
+                                : r.status === "error"
+                                ? "bg-red-100 text-red-700"
+                                : "bg-gray-200 text-gray-500"
+                            }`}>
+                              {r.status === "parsed" ? "就绪" : r.status === "error" ? "失败" : "处理中"}
+                            </span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); removeResume(r.name); }}
+                              className="text-gray-300 hover:text-red-400 text-lg leading-none p-1"
+                              title="移除"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expanded content */}
+                        {isExpanded && r.status === "parsed" && (
+                          <div className="px-4 pb-4 border-t border-gray-100">
+                            <div className="mt-3 p-4 bg-gray-50 rounded-lg">
+                              <pre className="text-xs text-gray-700 font-sans whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                                {r.text}
+                              </pre>
+                            </div>
+                            <div className="flex gap-4 mt-3 text-xs text-gray-400">
+                              <span>📝 {wordCount} 字</span>
+                              <span>📄 {r.text.split("\n").filter(l => l.trim()).length} 行</span>
+                              <span>📋 {r.name}</span>
+                            </div>
+                          </div>
                         )}
                       </div>
-                      <button
-                        onClick={() => removeResume(r.name)}
-                        className="text-gray-400 hover:text-red-500 text-sm"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
