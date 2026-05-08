@@ -215,9 +215,17 @@ export default function HomePage() {
       {/* Hero */}
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white">
         <div className="max-w-5xl mx-auto px-6 py-16">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-3xl">🤖</span>
-            <h1 className="text-3xl font-bold">Recruit Agent</h1>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <span className="text-3xl">🤖</span>
+              <h1 className="text-3xl font-bold">Recruit Agent</h1>
+            </div>
+            <a
+              href="/settings"
+              className="flex items-center gap-1 text-sm bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition"
+            >
+              ⚙️ 语音面试设置
+            </a>
           </div>
           <p className="text-lg text-blue-100 mb-1">AI 智能招聘 — 让 Agent 替你筛选、面试、评估候选人</p>
           <p className="text-sm text-blue-200">上传简历 → AI 自动匹配打分 → 降本增效</p>
@@ -575,9 +583,13 @@ export default function HomePage() {
               {[
                 { icon: "📋", title: "JD 智能生成", desc: "输入需求 → AI 自动解析为结构化标签" },
                 { icon: "🔍", title: "简历精准匹配", desc: "支持 PDF/Word/TXT，四维度智能打分" },
-                { icon: "🎤", title: "AI 模拟面试", desc: "JD+简历自动出题，实时评估，生成报告" },
+                { icon: "🎤", title: "AI 语音面试", desc: "MiniMax TTS 语音面试官，自动出题+生成报告", href: "/interview/demo" },
               ].map((f, i) => (
-                <div key={i} className="bg-white rounded-xl p-6 shadow-sm border hover:shadow-md transition">
+                <div
+                  key={i}
+                  onClick={() => f.href && (window.location.href = f.href)}
+                  className={`bg-white rounded-xl p-6 shadow-sm border hover:shadow-md transition ${f.href ? "cursor-pointer hover:border-blue-300" : ""}`}
+                >
                   <div className="text-3xl mb-3">{f.icon}</div>
                   <h3 className="font-semibold mb-2">{f.title}</h3>
                   <p className="text-gray-600 text-sm">{f.desc}</p>
