@@ -208,6 +208,39 @@ export default function HomePage() {
     setError("");
   };
 
+  // Export PDF for screening results
+  const exportScreeningPdf = async () => {
+    if (!results || !job) return;
+    try {
+      const res = await fetch("/api/report/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "screening",
+          jobTitle: job.title,
+          date: new Date().toLocaleString("zh-CN"),
+          results: results.map((r) => ({
+            candidateId: r.candidateId,
+            overallScore: r.overallScore,
+            dimensionScores: r.dimensionScores,
+            highlights: r.highlights,
+            concerns: r.concerns,
+          })),
+        }),
+      });
+      if (!res.ok) throw new Error("PDF 生成失败");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `筛选报告-${job.title}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(`导出失败: ${err.message}`);
+    }
+  };
+
   // --- RENDER ---
 
   return (
@@ -220,12 +253,20 @@ export default function HomePage() {
               <span className="text-3xl">🤖</span>
               <h1 className="text-3xl font-bold">Recruit Agent</h1>
             </div>
-            <a
-              href="/settings"
-              className="flex items-center gap-1 text-sm bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition"
-            >
-              ⚙️ 语音面试设置
-            </a>
+            <div className="flex items-center gap-2">
+              <a
+                href="/dashboard"
+                className="text-sm bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition"
+              >
+                📊 仪表盘
+              </a>
+              <a
+                href="/settings"
+                className="flex items-center gap-1 text-sm bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg transition"
+              >
+                ⚙️ 语音面试设置
+              </a>
+            </div>
           </div>
           <p className="text-lg text-blue-100 mb-1">AI 智能招聘 — 让 Agent 替你筛选、面试、评估候选人</p>
           <p className="text-sm text-blue-200">上传简历 → AI 自动匹配打分 → 降本增效</p>
@@ -268,7 +309,15 @@ export default function HomePage() {
             <div className="bg-green-50 border border-green-200 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold text-green-800">✅ {job.title}</h3>
-                <button onClick={handleReset} className="text-sm text-gray-500 hover:text-gray-700">重置</button>
+                <div className="flex items-center gap-3">
+                  <a
+                    href={`/interview/demo?job=${encodeURIComponent(job.title)}`}
+                    className="text-sm bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 transition"
+                  >
+                    🎤 对该岗位面试
+                  </a>
+                  <button onClick={handleReset} className="text-sm text-gray-500 hover:text-gray-700">重置</button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-2">
                 {job.structuredRequirements?.map((req: any, i: number) => (
@@ -485,7 +534,15 @@ export default function HomePage() {
         {/* Results */}
         {results && (
           <div className="mb-12">
-            <h2 className="text-xl font-semibold mb-4">📊 筛选结果 — 按匹配度降序</h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold">📊 筛选结果 — 按匹配度降序</h2>
+              <button
+                onClick={exportScreeningPdf}
+                className="text-sm bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+              >
+                📄 导出报告 PDF
+              </button>
+            </div>
             <div className="space-y-4">
               {results.map((r, i) => (
                 <div

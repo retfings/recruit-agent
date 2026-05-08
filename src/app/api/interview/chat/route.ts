@@ -27,7 +27,20 @@ interface Turn {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { history, jobTitle } = body as { history: Turn[]; jobTitle?: string };
+    const { history, jobTitle, template } = body as {
+      history: Turn[];
+      jobTitle?: string;
+      template?: string;
+    };
+
+    const TEMPLATE_PROMPTS: Record<string, string> = {
+      "前端专场": "你面试的是一位前端工程师候选人。重点考察：React/Vue/TS 技术深度、CSS/性能优化、浏览器原理、工程化实践、前端架构设计。根据回答追问具体的技术细节。",
+      "后端专场": "你面试的是一位后端工程师候选人。重点考察：数据库设计/优化、并发处理、系统架构、API 设计、分布式系统、DevOps。追问技术方案的 trade-off。",
+      "行为面试": "你正在进行行为面试（STAR 法则）。重点考察：团队协作、冲突处理、领导力、压力应对、失败反思。让候选人给出具体的真实案例，追问情境-任务-行动-结果。",
+      "管理岗": "你面试的是一位管理岗候选人。重点考察：团队建设、项目管理、战略规划、跨部门协调、人才培养。追问具体的团队规模和实际案例。",
+    };
+
+    const templatePrompt = template ? (TEMPLATE_PROMPTS[template] || "") : "";
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -38,6 +51,8 @@ export async function POST(req: NextRequest) {
     const jobContext = jobTitle ? `岗位：${jobTitle}` : "";
 
     const systemPrompt = `你是一位资深的 HR 面试官 AI，正在进行一场语音模拟面试。${jobContext}
+
+${templatePrompt}
 
 你的核心原则：
 1. 每次只问一个问题，不要一次问多个
