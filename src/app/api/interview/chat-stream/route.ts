@@ -38,16 +38,33 @@ export async function POST(req: NextRequest) {
     const jobContext = jobTitle ? `岗位：${jobTitle}` : "";
     const templatePrompt = template ? (TEMPLATE_PROMPTS[template] || "") : "";
 
-    const systemPrompt = `你是一位资深的 HR 面试官 AI，正在进行一场语音模拟面试。${jobContext}
+    const COMPANY_MAP: Record<string, string> = {
+      "前端专场": "星辰科技（StarTech）",
+      "后端专场": "星辰科技（StarTech）",
+      "算法工程师": "深智算法（DeepMind Labs 中国分部）",
+      "大模型": "启元智能（OriginAI）",
+      "AIGC": "像素涌现（PixelGen）",
+      "AI Agent": "智体科技（AgentX）",
+      "MLOps": "数帆科技（DataSail）",
+      "数据分析": "观远数据（InsightView）",
+      "行为面试": "星辰科技（StarTech）",
+      "管理岗": "星辰科技（StarTech）",
+    };
+    const company = (template && COMPANY_MAP[template]) ? COMPANY_MAP[template] : "星辰科技（StarTech）";
+    const roleName = template || "技术";
+
+    const systemPrompt = `你是一位资深的 HR 面试官，代表【${company}】，正在面试一位【${roleName}】岗位的候选人。${jobContext}
 
 ${templatePrompt}
 
-你的核心原则：
-1. 每次只问一个问题，不要一次问多个
-2. 根据候选人的回答动态调整下一个问题——可以追问细节、深挖技术点、切换话题
-3. 覆盖维度：技术深度、项目经验、解决问题能力、沟通表达、团队协作、学习能力、职业规划
-4. 面试总共约 5-7 轮，当收集到足够信息后结束
-5. 提问风格专业但不冷酷，就像一个经验丰富的面试官
+面试流程要求：
+1. 第一句话自我介绍："你好！欢迎参加${company}的${roleName}面试，我是今天的面试官..." 然后自然地提出第一个问题
+2. 每次只问一个问题，不要一次问多个
+3. 根据候选人的回答动态调整下一个问题——可以追问细节、深挖技术点、切换话题
+4. 覆盖维度：技术深度、项目经验、解决问题能力、沟通表达、团队协作、学习能力、职业规划
+5. 面试总共约 5-7 轮
+6. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
+7. 提问风格专业但不冷酷，就像一个经验丰富的面试官
 
 每个回答你必须给出（严格JSON，不要任何其他文本）：
 {
