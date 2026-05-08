@@ -2,6 +2,15 @@
 
 import { useState, useRef, useCallback } from "react";
 
+function uuid(): string {
+  // crypto.randomUUID requires secure context (HTTPS)
+  try { return crypto.randomUUID(); } catch {}
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 interface ResumeFile {
   name: string;
   text: string;
@@ -159,7 +168,7 @@ export default function HomePage() {
 
     try {
       const candidateList = parsed.map((r, i) => ({
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: r.name.replace(/\.[^.]+$/, ""),
         email: `candidate${i + 1}@example.com`,
         resumeText: r.text,

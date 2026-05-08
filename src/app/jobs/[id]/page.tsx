@@ -3,6 +3,14 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 
+function uuid(): string {
+  try { return crypto.randomUUID(); } catch {}
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
+  });
+}
+
 export default function JobDetailPage() {
   const params = useParams();
   const [candidates, setCandidates] = useState("");
@@ -23,7 +31,7 @@ export default function JobDetailPage() {
         .filter(Boolean);
 
       const candidateList = resumeBlocks.map((text, i) => ({
-        id: crypto.randomUUID(),
+        id: uuid(),
         name: `候选人 ${i + 1}`,
         email: `candidate${i + 1}@example.com`,
         resumeText: text,
