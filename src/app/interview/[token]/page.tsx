@@ -20,6 +20,12 @@ const INTERVIEW_TEMPLATES = [
   { id: "", label: "通用技术面", desc: "技术深度、架构能力、编程基础、系统设计" },
   { id: "前端专场", label: "前端专场", desc: "React/Vue/TS 深度、CSS/性能优化、浏览器原理、工程化" },
   { id: "后端专场", label: "后端专场", desc: "数据库优化、并发处理、系统架构、API 设计" },
+  { id: "算法工程师", label: "算法工程师", desc: "数据结构、算法复杂度、动态规划、图论、ML 基础" },
+  { id: "大模型", label: "大模型/LLM", desc: "Transformer、预训练/微调、RLHF、推理优化、RAG" },
+  { id: "AIGC", label: "AIGC 应用", desc: "Stable Diffusion/DALL-E、Prompt Engineering、多模态生成" },
+  { id: "AI Agent", label: "AI Agent", desc: "Agent 架构、工具调用、记忆管理、多 Agent 协作、LangChain" },
+  { id: "MLOps", label: "MLOps/工程", desc: "模型部署、CI/CD/CT、特征工程、AB 测试、模型监控" },
+  { id: "数据分析", label: "数据分析/科学", desc: "SQL/数据清洗、统计推断、AB 实验设计、可视化叙事" },
   { id: "行为面试", label: "行为面试", desc: "STAR 法则：团队协作、冲突处理、领导力、压力应对" },
   { id: "管理岗", label: "管理岗", desc: "团队建设、项目管理、战略规划、人才培养" },
 ];
