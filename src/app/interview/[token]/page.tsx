@@ -43,6 +43,7 @@ export default function VoiceInterviewPage() {
   const [phase, setPhase] = useState<"intro" | "qa" | "done">("intro");
   const [questionIndex, setQuestionIndex] = useState(0);
   const [error, setError] = useState("");
+  const [pendingAudio, setPendingAudio] = useState<string | null>(null);
   const chatRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -64,6 +65,15 @@ export default function VoiceInterviewPage() {
   useEffect(() => {
     chatRef.current?.scrollTo(0, chatRef.current.scrollHeight);
   }, [messages]);
+
+  // Auto-play pending audio when ready
+  useEffect(() => {
+    if (pendingAudio && audioRef.current) {
+      audioRef.current.src = pendingAudio;
+      audioRef.current.play().catch((e) => console.log("Autoplay blocked:", e));
+      setPendingAudio(null);
+    }
+  }, [pendingAudio]);
 
   // TTS: text → audio
   const speak = useCallback(async (text: string): Promise<string | null> => {
@@ -105,7 +115,6 @@ export default function VoiceInterviewPage() {
   // Start interview
   const startInterview = async () => {
     setLoading(true);
-    setPhase("qa");
     setError("");
 
     const firstMsg: ChatMessage = {
@@ -117,15 +126,13 @@ export default function VoiceInterviewPage() {
     const audioUrl = await speak(firstMsg.content);
     firstMsg.audioUrl = audioUrl;
 
+    setPhase("qa");
     setMessages([firstMsg]);
     setQuestionIndex(0);
     setLoading(false);
 
-    // Auto-play
-    if (audioUrl && audioRef.current) {
-      audioRef.current.src = audioUrl;
-      audioRef.current.play();
-    }
+    // Auto-play via effect (after phase change renders the audio element)
+    if (audioUrl) setPendingAudio(audioUrl);
   };
 
   // Submit answer
@@ -163,10 +170,7 @@ export default function VoiceInterviewPage() {
     setQuestionIndex(nextIdx);
     setLoading(false);
 
-    if (audioUrl && audioRef.current) {
-      audioRef.current.src = audioUrl;
-      audioRef.current.play();
-    }
+    if (audioUrl) setPendingAudio(audioUrl);
   };
 
   return (
