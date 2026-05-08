@@ -575,9 +575,8 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* Feature Cards (only when no job yet) */}
-        {!job && (
-          <div className="max-w-5xl mx-auto px-6 pb-16">
+        {/* Feature Cards */}
+        <div className="max-w-5xl mx-auto px-6 pb-16">
             <h2 className="text-2xl font-semibold mb-8 text-center">核心能力</h2>
             <div className="grid md:grid-cols-3 gap-6">
               {[
@@ -597,8 +596,7 @@ export default function HomePage() {
               ))}
             </div>
           </div>
-        )}
-      </div>
+        </div>
     </main>
   );
 }
