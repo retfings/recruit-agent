@@ -16,10 +16,41 @@ import type {
   DimensionScore,
 } from "@/lib/types";
 
+/**
+ * Robust JSON parse — handles truncated/malformed LLM output.
+ * Tries: 1) direct parse 2) fix unclosed strings 3) close unopened braces
+ */
+function safeJsonParse(raw: string): any {
+  // 1) Try direct parse
+  try { return JSON.parse(raw); } catch {}
+
+  // 2) Try to close unclosed strings (trailing quote)
+  try { return JSON.parse(raw + '"'); } catch {}
+
+  // 3) Try to close unclosed string + JSON structure
+  try { return JSON.parse(raw + '"\\"}'); } catch {}
+
+  // 4) Find last complete `}` and truncate
+  let lastBrace = raw.lastIndexOf('}');
+  while (lastBrace > 0) {
+    try { return JSON.parse(raw.substring(0, lastBrace + 1)); } catch {}
+    lastBrace = raw.lastIndexOf('}', lastBrace - 1);
+  }
+
+  // 5) Try adding missing closing braces
+  const openBraces = (raw.match(/{/g) || []).length;
+  const closeBraces = (raw.match(/}/g) || []).length;
+  if (openBraces > closeBraces) {
+    try { return JSON.parse(raw + '}'.repeat(openBraces - closeBraces)); } catch {}
+  }
+
+  throw new Error("JSON repair failed");
+}
+
 const LLM_CONFIG = {
   model: process.env.LLM_MODEL || "deepseek-v4-flash",
   temperature: 0.1, // 低温度保证一致性
-  maxTokens: 2048,
+  maxTokens: 4096,
   configuration: {
     baseURL: process.env.LLM_BASE_URL || "https://api.deepseek.com",
     apiKey: process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY!,
@@ -118,7 +149,7 @@ ${candidate.resumeText}
       .replace(/```json\n?/g, "")
       .replace(/```/g, "")
       .trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = safeJsonParse(cleaned);
 
     return {
       candidateId: candidate.id,

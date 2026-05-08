@@ -15,10 +15,27 @@ import type {
   MatchResult,
 } from "@/lib/types";
 
+function safeJsonParse(raw: string): any {
+  try { return JSON.parse(raw); } catch {}
+  try { return JSON.parse(raw + '"'); } catch {}
+  try { return JSON.parse(raw + '"\\"}]'); } catch {}
+  let lastClose = raw.lastIndexOf(']');
+  while (lastClose > 0) {
+    try { return JSON.parse(raw.substring(0, lastClose + 1)); } catch {}
+    lastClose = raw.lastIndexOf(']', lastClose - 1);
+  }
+  const openBrackets = (raw.match(/\[/g) || []).length;
+  const closeBrackets = (raw.match(/\]/g) || []).length;
+  if (openBrackets > closeBrackets) {
+    try { return JSON.parse(raw + ']'.repeat(openBrackets - closeBrackets)); } catch {}
+  }
+  throw new Error("JSON repair failed");
+}
+
 const LLM_CONFIG = {
   model: process.env.LLM_MODEL || "deepseek-v4-pro",
   temperature: 0.3,
-  maxTokens: 2048,
+  maxTokens: 4096,
   configuration: {
     baseURL: process.env.LLM_BASE_URL || "https://api.deepseek.com",
     apiKey: process.env.LLM_API_KEY || process.env.DEEPSEEK_API_KEY!,
@@ -73,7 +90,7 @@ ${matchResult.followUpQuestions.map((q) => `- ${q}`).join("\n")}
       .replace(/```json\n?/g, "")
       .replace(/```/g, "")
       .trim();
-    return JSON.parse(cleaned);
+    return safeJsonParse(cleaned);
   } catch {
     console.error("Failed to parse interview questions");
     return [];
@@ -119,7 +136,7 @@ ${resumeContext}
       .replace(/```json\n?/g, "")
       .replace(/```/g, "")
       .trim();
-    return JSON.parse(cleaned);
+    return safeJsonParse(cleaned);
   } catch {
     return {
       score: 50,
@@ -176,7 +193,7 @@ ${qaHistory}
       .replace(/```json\n?/g, "")
       .replace(/```/g, "")
       .trim();
-    const parsed = JSON.parse(cleaned);
+    const parsed = safeJsonParse(cleaned);
     return {
       ...parsed,
       detailedFeedback: answers.map((a) => ({
