@@ -123,23 +123,41 @@ ${history
     const data = await resp.json();
     const raw = data.choices?.[0]?.message?.content || "";
 
-    // Parse JSON
+    // Parse JSON — robust extraction
     let parsed;
-    try {
-      const cleaned = raw.replace(/```json\n?/g, "").replace(/```/g, "").trim();
-      parsed = JSON.parse(cleaned);
-    } catch {
-      try {
-        const cleaned = raw.replace(/```json\n?/g, "").replace(/```/g, "").trim();
-        let lastBrace = cleaned.lastIndexOf("}");
-        while (lastBrace > 0) {
-          try { parsed = JSON.parse(cleaned.substring(0, lastBrace + 1)); break; } catch {}
-          lastBrace = cleaned.lastIndexOf("}", lastBrace - 1);
-        }
-      } catch {}
+    const text = raw.trim();
+
+    // Try 1: direct parse
+    try { parsed = JSON.parse(text); } catch {}
+
+    // Try 2: extract from markdown code block
+    if (!parsed) {
+      const m = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+      if (m) try { parsed = JSON.parse(m[1]); } catch {}
+    }
+
+    // Try 3: find outermost JSON object
+    if (!parsed) {
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start >= 0 && end > start) {
+        try { parsed = JSON.parse(text.substring(start, end + 1)); } catch {}
+      }
+    }
+
+    // Try 4: fix truncated JSON
+    if (!parsed) {
+      const start = text.indexOf("{");
+      let s = start >= 0 ? text.substring(start) : text;
+      let lastBrace = s.lastIndexOf("}");
+      while (lastBrace > 0) {
+        try { parsed = JSON.parse(s.substring(0, lastBrace + 1)); break; } catch {}
+        lastBrace = s.lastIndexOf("}", lastBrace - 1);
+      }
     }
 
     if (!parsed) {
+      console.error("Chat JSON parse failed. Raw:", raw.substring(0, 400));
       return NextResponse.json({ error: "AI 响应解析失败", raw }, { status: 500 });
     }
 
