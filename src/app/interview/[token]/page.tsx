@@ -54,6 +54,8 @@ export default function VoiceInterviewPage() {
   const [error, setError] = useState("");
   const [pendingAudio, setPendingAudio] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  const [report, setReport] = useState<any>(null);
+  const [reportLoading, setReportLoading] = useState(false);
   const chatRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -190,25 +192,40 @@ export default function VoiceInterviewPage() {
   }, [listening]);
 
   // Submit answer
-  const handleSubmitAnswer = async () => {
+  const handleSubmitAnswer = async (messagesForReport?: ChatMessage[]) => {
     if (!currentAnswer.trim()) return;
 
     const answer: ChatMessage = {
       role: "candidate",
       content: currentAnswer.trim(),
     };
-    const newMessages = [...messages, answer];
+    const newMessages = [...(messagesForReport || messages), answer];
     setMessages(newMessages);
     setCurrentAnswer("");
-    setLoading(true);
 
     const nextIdx = questionIndex + 1;
-    if (nextIdx >= demoQuestions.length) {
+    // Last real question is index 4 (index 5 is closing message)
+    const lastQuestionIdx = demoQuestions.length - 2;
+
+    if (questionIndex >= lastQuestionIdx) {
+      // Speak closing message then show report
+      setLoading(true);
+      const closing: ChatMessage = {
+        role: "interviewer",
+        content: demoQuestions[demoQuestions.length - 1],
+      };
+      const audioUrl = await speak(closing.content);
+      closing.audioUrl = audioUrl;
+      setMessages([...newMessages, closing]);
       setPhase("done");
       setLoading(false);
+      setReportLoading(true);
+      await generateReport([...newMessages, closing]);
+      setReportLoading(false);
       return;
     }
 
+    setLoading(true);
     const nextQ: ChatMessage = {
       role: "interviewer",
       content: demoQuestions[nextIdx],
@@ -220,6 +237,36 @@ export default function VoiceInterviewPage() {
     setQuestionIndex(nextIdx);
     setLoading(false);
     if (audioUrl) setPendingAudio(audioUrl);
+  };
+
+  // Generate interview evaluation report
+  const generateReport = async (msgs: ChatMessage[]) => {
+    const qaPairs = [];
+    for (let i = 0; i < msgs.length - 1; i += 2) {
+      const q = msgs[i];
+      const a = msgs[i + 1];
+      if (q?.role === "interviewer" && a?.role === "candidate") {
+        qaPairs.push({ question: q.content, answer: a.content });
+      }
+    }
+    if (qaPairs.length === 0) return;
+
+    try {
+      const res = await fetch("/api/interview/evaluate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ qaPairs }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReport(data);
+      } else {
+        const err = await res.json();
+        setError(err.error || "评估生成失败");
+      }
+    } catch (err: any) {
+      setError("评估生成失败: " + err.message);
+    }
   };
 
   // Render
@@ -381,7 +428,7 @@ export default function VoiceInterviewPage() {
                     </button>
                   </div>
                   <button
-                    onClick={handleSubmitAnswer}
+                    onClick={() => handleSubmitAnswer()}
                     disabled={!currentAnswer.trim() || loading}
                     className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-medium self-end transition"
                   >
@@ -397,23 +444,122 @@ export default function VoiceInterviewPage() {
             )}
 
             {phase === "done" && (
-              <div className="text-center py-12">
-                <div className="text-5xl mb-4">🎉</div>
-                <h2 className="text-2xl font-bold mb-3">面试结束！</h2>
-                <p className="text-gray-400 mb-6">
-                  感谢参与模拟面试。评估报告正在生成中...
-                </p>
-                <button
-                  onClick={() => {
-                    setPhase("countdown");
-                    setCountdown(3);
-                    setMessages([]);
-                    setQuestionIndex(0);
-                  }}
-                  className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition"
-                >
-                  重新开始
-                </button>
+              <div className="space-y-4">
+                <div className="text-center py-8">
+                  <div className="text-5xl mb-4">🎉</div>
+                  <h2 className="text-2xl font-bold mb-3">面试结束！</h2>
+                </div>
+
+                {/* Loading */}
+                {reportLoading && (
+                  <div className="text-center py-8">
+                    <div className="animate-spin text-4xl mb-4">⏳</div>
+                    <p className="text-gray-400">AI 正在分析你的回答，生成评估报告...</p>
+                  </div>
+                )}
+
+                {/* Report */}
+                {report && !reportLoading && (
+                  <div className="bg-gray-800 border border-gray-700 rounded-2xl p-6 space-y-5">
+                    {/* Overall Score */}
+                    <div className="text-center">
+                      <div className="inline-flex items-center justify-center w-24 h-24 rounded-full border-4 border-blue-500 bg-blue-500/10 mb-3">
+                        <span className="text-3xl font-bold text-blue-400">{report.overallScore}</span>
+                      </div>
+                      <h3 className="text-lg font-semibold">综合评分</h3>
+                      <p className="text-gray-400 text-sm mt-1 max-w-lg mx-auto">{report.summary}</p>
+                      {report.recommendation && (
+                        <div className={`mt-3 inline-block px-4 py-1 rounded-full text-sm font-medium ${
+                          report.recommendation.includes("通过")
+                            ? "bg-green-900/50 text-green-400 border border-green-700"
+                            : report.recommendation.includes("复试")
+                            ? "bg-amber-900/50 text-amber-400 border border-amber-700"
+                            : "bg-red-900/50 text-red-400 border border-red-700"
+                        }`}>
+                          {report.recommendation}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Dimension Scores */}
+                    <div>
+                      <h4 className="font-medium mb-3 text-gray-300">📊 维度评分</h4>
+                      <div className="space-y-3">
+                        {report.dimensions?.map((d: any, i: number) => (
+                          <div key={i}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-sm text-gray-400">{d.name}</span>
+                              <span className="text-sm font-medium">{d.score}/100</span>
+                            </div>
+                            <div className="w-full bg-gray-700 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full ${
+                                  d.score >= 80 ? "bg-green-500" : d.score >= 60 ? "bg-amber-500" : "bg-red-500"
+                                }`}
+                                style={{ width: `${d.score}%` }}
+                              />
+                            </div>
+                            <p className="text-xs text-gray-500 mt-1">{d.comment}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Strengths & Weaknesses */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-green-900/20 border border-green-800 rounded-xl p-4">
+                        <h4 className="font-medium text-green-400 mb-2">✅ 优势</h4>
+                        <ul className="space-y-1">
+                          {report.strengths?.map((s: string, i: number) => (
+                            <li key={i} className="text-sm text-gray-300 flex gap-2">
+                              <span>•</span> {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="bg-red-900/20 border border-red-800 rounded-xl p-4">
+                        <h4 className="font-medium text-red-400 mb-2">⚠️ 待改进</h4>
+                        <ul className="space-y-1">
+                          {report.weaknesses?.map((w: string, i: number) => (
+                            <li key={i} className="text-sm text-gray-300 flex gap-2">
+                              <span>•</span> {w}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    {/* Suggestions */}
+                    {report.suggestions?.length > 0 && (
+                      <div className="bg-gray-750 border border-gray-600 rounded-xl p-4">
+                        <h4 className="font-medium text-gray-300 mb-2">💡 改进建议</h4>
+                        <ul className="space-y-1">
+                          {report.suggestions.map((sg: string, i: number) => (
+                            <li key={i} className="text-sm text-gray-400 flex gap-2">
+                              <span>{i + 1}.</span> {sg}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Restart */}
+                <div className="text-center pb-8">
+                  <button
+                    onClick={() => {
+                      setPhase("countdown");
+                      setCountdown(3);
+                      setMessages([]);
+                      setQuestionIndex(0);
+                      setReport(null);
+                    }}
+                    className="px-6 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition"
+                  >
+                    重新开始
+                  </button>
+                </div>
               </div>
             )}
           </>
