@@ -3,21 +3,36 @@
  * 使用 LangGraph 管理多步筛选流程
  */
 
-import { StateGraph, END } from "@langchain/langgraph";
+import { StateGraph, Annotation, END } from "@langchain/langgraph";
 import type { ScreeningState, MatchResult } from "@/lib/types";
 import { matchResume } from "./screening";
 
+// State annotation for LangGraph
+const ScreeningAnnotation = Annotation.Root({
+  jobId: Annotation<string>,
+  job: Annotation<any>,
+  candidates: Annotation<any[]>,
+  matchResults: Annotation<MatchResult[]>({
+    reducer: (current, update) => update ?? current ?? [],
+    default: () => [],
+  }),
+  currentStep: Annotation<"parsing" | "matching" | "ranking" | "done">,
+  errors: Annotation<string[]>({
+    reducer: (current, update) => [...(current ?? []), ...(update ?? [])],
+    default: () => [],
+  }),
+});
+
 // --- Graph Nodes ---
 
-async function parseResumes(state: ScreeningState): Promise<Partial<ScreeningState>> {
-  // Candidates already have resumeText, nothing to parse here
-  // In production, this would use a PDF parser
+async function parseResumes(state: typeof ScreeningAnnotation.State): Promise<Partial<typeof ScreeningAnnotation.State>> {
   console.log(`Parsing ${state.candidates.length} resumes for job ${state.jobId}`);
-  return { currentStep: "matching" as const };
+  return { currentStep: "matching" };
 }
 
-async function matchCandidates(state: ScreeningState): Promise<Partial<ScreeningState>> {
+async function matchCandidates(state: typeof ScreeningAnnotation.State): Promise<Partial<typeof ScreeningAnnotation.State>> {
   const results: MatchResult[] = [];
+  const errors: string[] = [];
 
   for (const candidate of state.candidates) {
     try {
@@ -25,25 +40,23 @@ async function matchCandidates(state: ScreeningState): Promise<Partial<Screening
       results.push(result);
     } catch (err) {
       console.error(`Failed to match candidate ${candidate.id}:`, err);
-      state.errors.push(`Candidate ${candidate.name}: 匹配失败`);
+      errors.push(`Candidate ${candidate.name}: 匹配失败`);
     }
   }
 
   return {
     matchResults: results,
-    currentStep: "ranking" as const,
+    errors,
+    currentStep: "ranking",
   };
 }
 
-async function rankResults(state: ScreeningState): Promise<Partial<ScreeningState>> {
-  state.matchResults.sort((a, b) => b.overallScore - a.overallScore);
-  return { currentStep: "done" as const };
+async function rankResults(state: typeof ScreeningAnnotation.State): Promise<Partial<typeof ScreeningAnnotation.State>> {
+  const sorted = [...state.matchResults].sort((a, b) => b.overallScore - a.overallScore);
+  return { matchResults: sorted, currentStep: "done" };
 }
 
-function shouldContinue(state: ScreeningState): string {
-  if (state.errors.length > 0 && state.matchResults.length === 0) {
-    return END;
-  }
+function routeStep(state: typeof ScreeningAnnotation.State): string {
   switch (state.currentStep) {
     case "parsing":
       return "matchCandidates";
@@ -59,33 +72,27 @@ function shouldContinue(state: ScreeningState): string {
 // --- Graph Definition ---
 
 export function createScreeningGraph() {
-  const graph = new StateGraph({ channels: screeningStateSchema })
+  return new StateGraph(ScreeningAnnotation)
     .addNode("parseResumes", parseResumes)
     .addNode("matchCandidates", matchCandidates)
     .addNode("rankResults", rankResults)
     .addEdge("__start__", "parseResumes")
-    .addConditionalEdges("parseResumes", shouldContinue)
-    .addConditionalEdges("matchCandidates", shouldContinue)
-    .addConditionalEdges("rankResults", shouldContinue);
-
-  return graph.compile();
+    .addConditionalEdges("parseResumes", routeStep)
+    .addConditionalEdges("matchCandidates", routeStep)
+    .addConditionalEdges("rankResults", routeStep)
+    .compile();
 }
 
-// State schema for type safety
-const screeningStateSchema = {
-  jobId: null as any,
-  job: null as any,
-  candidates: null as any,
-  matchResults: null as any,
-  currentStep: null as any,
-  errors: null as any,
-};
-
 // Run screening for a job
-export async function runScreening(
-  state: ScreeningState
-): Promise<ScreeningState> {
+export async function runScreening(state: ScreeningState): Promise<ScreeningState> {
   const graph = createScreeningGraph();
-  const result = await graph.invoke(state);
+  const result = await graph.invoke({
+    jobId: state.jobId,
+    job: state.job,
+    candidates: state.candidates,
+    matchResults: state.matchResults,
+    currentStep: state.currentStep,
+    errors: state.errors,
+  });
   return result as unknown as ScreeningState;
 }
