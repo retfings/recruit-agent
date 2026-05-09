@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
     }
 
     const isFirstTurn = !history || history.length === 0;
+    const interviewerRounds = history ? history.filter((t) => t.role === "interviewer").length : 0;
+    const currentRound = interviewerRounds + 1;
     const jobContext = jobTitle ? `岗位：${jobTitle}` : "";
+    const maxRounds = 7;
 
     const COMPANY_MAP: Record<string, string> = {
       "前端专场": "星辰科技（StarTech）",
@@ -80,8 +83,9 @@ ${templatePrompt}
 2. 每次只问一个问题，不要一次问多个
 3. 根据候选人的回答动态调整下一个问题——可以追问细节、深挖技术点、切换话题
 4. 覆盖维度：技术深度、项目经验、解决问题能力、沟通表达、团队协作、学习能力、职业规划
-5. 面试总共约 5-7 轮
-6. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
+5. 面试总共 ${maxRounds} 轮，当前是第 ${currentRound} 轮
+6. 当第 ${maxRounds} 轮时必须设置 isComplete: true 结束面试
+7. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
 7. 提问风格专业但不冷酷，就像一个经验丰富的面试官
 
 每个回答你需要给出：
@@ -117,7 +121,7 @@ ${history
 1. 给出即时点评（feedback: praise + critique + suggestion）
 2. 决定下一个问题：可以追问细节、切换到新维度、或结束面试
 3. 说明下一个问题的考察意图
-4. 如果已经问够 5-7 轮且信息收集充分，设置 isComplete: true
+4. 当前是第 ${currentRound}/${maxRounds} 轮。如果已经是第 ${maxRounds} 轮，必须设置 isComplete: true
 
 返回 JSON，不要其他内容。`;
 
@@ -183,6 +187,12 @@ ${history
     if (!parsed) {
       console.error("Chat JSON parse failed. Raw:", raw.substring(0, 400));
       return NextResponse.json({ error: "AI 响应解析失败", raw }, { status: 500 });
+    }
+
+    // Force complete if max rounds reached
+    if (interviewerRounds + 1 >= maxRounds) {
+      parsed.isComplete = true;
+      parsed.nextQuestion = "好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？";
     }
 
     return NextResponse.json(parsed);

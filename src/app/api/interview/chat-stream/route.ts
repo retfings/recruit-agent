@@ -34,6 +34,8 @@ export async function POST(req: NextRequest) {
 
     const targetRounds = difficulty ? difficulty * 10 : 20;
     const levelDesc = difficultyLabel || "";
+    const currentRound = history ? history.filter((t) => t.role === "interviewer").length : 0;
+    const forceComplete = currentRound + 1 >= targetRounds;
 
     const apiKey = process.env.DEEPSEEK_API_KEY;
     if (!apiKey) {
@@ -67,8 +69,9 @@ ${templatePrompt}
 2. 每次只问一个问题，不要一次问多个
 3. 根据候选人的回答动态调整下一个问题——可以追问细节、深挖技术点、切换话题
 4. 覆盖维度：技术深度、项目经验、解决问题能力、沟通表达、团队协作、学习能力、职业规划
-5. 面试总共约 ${targetRounds} 轮，当收集到足够信息后结束
-6. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
+5. 面试总共 ${targetRounds} 轮，当前是第 ${currentRound + 1} 轮
+6. 当第 ${targetRounds} 轮时必须设置 isComplete: true 结束面试
+7. 最后一轮（isComplete=true 时），问题必须是："好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？"
 7. 提问风格专业但不冷酷，就像一个经验丰富的面试官
 
 每个回答你必须给出（严格JSON，不要任何其他文本）：
@@ -157,8 +160,18 @@ ${history
           reader.releaseLock();
         }
 
-        // Send completion with accumulated full content
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+        // Send completion — force isComplete if target rounds reached
+        let finalContent = fullContent;
+        if (forceComplete) {
+          try {
+            const cleaned = fullContent.replace(/```(?:json)?\s*\n?([\s\S]*?)\n?```/g, '$1').trim();
+            const parsed = JSON.parse(cleaned);
+            parsed.isComplete = true;
+            parsed.nextQuestion = "好的，我们今天的面试就到这里。你对我们公司或者这个岗位还有什么想了解的吗？";
+            finalContent = JSON.stringify(parsed);
+          } catch {}
+        }
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: finalContent })}\n\n`));
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       },
