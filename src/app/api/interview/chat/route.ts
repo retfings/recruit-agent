@@ -11,7 +11,12 @@
 
 import { NextRequest, NextResponse } from "next/server";
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions";
+
+/** MiniMax M2 models include <think>...</think> — strip before parsing */
+function stripThinking(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
 
 interface Turn {
   role: "interviewer" | "candidate";
@@ -48,9 +53,9 @@ export async function POST(req: NextRequest) {
 
     const templatePrompt = template ? (TEMPLATE_PROMPTS[template] || "") : "";
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const apiKey = process.env.MINIMAX_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "未配置 DeepSeek API Key" }, { status: 500 });
+      return NextResponse.json({ error: "未配置 MiniMax API Key" }, { status: 500 });
     }
 
     const isFirstTurn = !history || history.length === 0;
@@ -121,14 +126,14 @@ ${history
 
 返回 JSON，不要其他内容。`;
 
-    const resp = await fetch(DEEPSEEK_URL, {
+    const resp = await fetch(MINIMAX_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "MiniMax-M2.5",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
@@ -140,12 +145,12 @@ ${history
     });
 
     if (!resp.ok) {
-      console.error("DeepSeek chat error:", resp.status);
+      console.error("MiniMax chat error:", resp.status);
       return NextResponse.json({ error: "AI 请求失败" }, { status: resp.status });
     }
 
     const data = await resp.json();
-    const raw = data.choices?.[0]?.message?.content || "";
+    const raw = stripThinking(data.choices?.[0]?.message?.content || "");
 
     // Parse JSON — robust extraction
     let parsed;

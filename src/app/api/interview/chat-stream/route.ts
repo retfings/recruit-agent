@@ -1,12 +1,17 @@
 /**
  * POST /api/interview/chat-stream
  * Streaming version — SSE tokens → parse JSON at end
- * Uses DeepSeek stream API
+ * Uses MiniMax stream API
  */
 
 import { NextRequest } from "next/server";
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions";
+
+/** MiniMax M2 models include <think>...</think> — strip before parsing */
+function stripThinking(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
 
 const TEMPLATE_PROMPTS: Record<string, string> = {
   "前端专场": "你面试的是一位前端工程师候选人。重点考察：React/Vue/TS 技术深度、CSS/性能优化、浏览器原理、工程化实践、前端架构设计。根据回答追问具体的技术细节。",
@@ -35,9 +40,9 @@ export async function POST(req: NextRequest) {
     const targetRounds = difficulty ? difficulty * 10 : 20;
     const levelDesc = difficultyLabel || "";
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const apiKey = process.env.MINIMAX_API_KEY;
     if (!apiKey) {
-      return new Response(JSON.stringify({ error: "未配置 DeepSeek API Key" }), { status: 500 });
+      return new Response(JSON.stringify({ error: "未配置 MiniMax API Key" }), { status: 500 });
     }
 
     const jobContext = jobTitle ? `岗位：${jobTitle}` : "";
@@ -93,15 +98,15 @@ ${history
 
 请根据这个回答给出即时点评 + 下一个问题。严格返回JSON。`;
 
-    // Call DeepSeek with streaming
-    const resp = await fetch(DEEPSEEK_URL, {
+    // Call MiniMax with streaming
+    const resp = await fetch(MINIMAX_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "MiniMax-M2.5",
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
@@ -114,10 +119,10 @@ ${history
     });
 
     if (!resp.ok) {
-      return new Response(JSON.stringify({ error: "DeepSeek 请求失败" }), { status: resp.status });
+      return new Response(JSON.stringify({ error: "MiniMax 请求失败" }), { status: resp.status });
     }
 
-    // Stream: forward DeepSeek SSE to client, accumulating content
+    // Stream: forward MiniMax SSE to client, accumulating content
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -133,7 +138,7 @@ ${history
 
             buffer += decoder.decode(value, { stream: true });
 
-            // DeepSeek SSE format: data: {...}\n\n
+            // SSE format: data: {...}\n\n
             const lines = buffer.split("\n");
             buffer = lines.pop() || "";
 
@@ -157,8 +162,8 @@ ${history
           reader.releaseLock();
         }
 
-        // Send completion with accumulated full content
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: fullContent })}\n\n`));
+        // Send completion with accumulated full content (strip thinking)
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true, content: stripThinking(fullContent) })}\n\n`));
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       },

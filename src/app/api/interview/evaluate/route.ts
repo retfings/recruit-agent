@@ -4,7 +4,12 @@
  */
 import { NextRequest, NextResponse } from "next/server";
 
-const DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
+const MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions";
+
+/** MiniMax M2 models include <think>...</think> — strip before parsing */
+function stripThinking(content: string): string {
+  return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -15,9 +20,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "缺少问答内容" }, { status: 400 });
     }
 
-    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const apiKey = process.env.MINIMAX_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "未配置 DeepSeek API Key" }, { status: 500 });
+      return NextResponse.json({ error: "未配置 MiniMax API Key" }, { status: 500 });
     }
 
     const qaText = qaPairs
@@ -52,14 +57,14 @@ ${qaText}
 
 只返回 JSON，不要其他内容。`;
 
-    const resp = await fetch(DEEPSEEK_URL, {
+    const resp = await fetch(MINIMAX_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: "deepseek-chat",
+        model: "MiniMax-M2.5",
         messages: [{ role: "user", content: prompt }],
         temperature: 0.3,
         max_tokens: 2048,
@@ -72,7 +77,7 @@ ${qaText}
     }
 
     const data = await resp.json();
-    const raw = data.choices?.[0]?.message?.content || "";
+    const raw = stripThinking(data.choices?.[0]?.message?.content || "");
 
     let parsed;
     try {
