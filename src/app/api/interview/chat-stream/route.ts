@@ -8,9 +8,13 @@ import { NextRequest } from "next/server";
 
 const MINIMAX_URL = "https://api.minimaxi.com/v1/chat/completions";
 
-/** MiniMax M2 models include <think>...</think> — strip before parsing */
+/** MiniMax M2 models include <think>...</think> and sometimes ```json blocks — strip before parsing */
 function stripThinking(content: string): string {
-  return content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  let c = content.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+  // Also strip markdown code blocks
+  const m = c.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (m) c = m[1].trim();
+  return c;
 }
 
 const TEMPLATE_PROMPTS: Record<string, string> = {
